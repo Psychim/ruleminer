@@ -1,6 +1,7 @@
 package model.collections;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -13,13 +14,29 @@ import util.SubSetGenerator;
 import util.Util;
 
 public class PPairSet implements Iterable<PPair>, Comparable<PPairSet>{
-	private Set<PPair> p;
+	private TreeSet<PPair> p;
 	private Map<Integer,Integer> m;
-	public PPairSet(List<PPair> list) {
-		// TODO Auto-generated constructor stub
+	public PPairSet() {
 		p=new TreeSet<PPair>();
 		m=new TreeMap<Integer,Integer>();
+	}
+	public PPairSet(Collection<PPair> list) {
+		// TODO Auto-generated constructor stub
+		this();
 		p.addAll(list);
+	}
+	public PPairSet(PPair pp) {
+		// TODO Auto-generated constructor stub
+		this();
+		p.add(pp);
+	}
+	public PPairSet(PPairSet pps) {
+		// TODO Auto-generated constructor stub
+		this();
+		p.addAll(pps.p);
+	}
+	public void addPPair(PPair pp) {
+		p.add(pp);
 	}
 	public int size() {
 		return p.size();
@@ -36,6 +53,7 @@ public class PPairSet implements Iterable<PPair>, Comparable<PPairSet>{
 		for(Integer k:m.keySet()) {
 			edges+=m.get(k)-1;
 		}
+		if(edges==0) return 0;
 		return m.keySet().size()*1./edges;
 	}
 	public boolean hasSubSet(PPairSet ps){
@@ -70,5 +88,15 @@ public class PPairSet implements Iterable<PPair>, Comparable<PPairSet>{
 		// TODO Auto-generated method stub
 		return p;
 	}
-	
+	public PPair SmalleastPPair() {
+		return p.first();
+	}
+	public boolean bestInSubSet(IFPSSet ifpss) {
+		// TODO Auto-generated method stub
+		for(PPairSet pps:ifpss) {
+			if(this.hasSubSet(pps)&&this.divergence()<=pps.divergence()&&this.compareTo(pps)!=0)
+				return false;
+		}
+		return true;
+	}
 }

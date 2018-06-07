@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -35,6 +36,7 @@ import model.element.Instance;
 import model.element.Match;
 import model.element.PPair;
 import model.element.PVPair;
+import model.element.Pair;
 import model.element.Property;
 import model.element.Transaction;
 import model.element.Triple;
@@ -50,7 +52,8 @@ public class MatchingRuleMiner {
 	private CorrespondenceSet candidates;
 	private Suite suite;
 	private int iteration=1;
-	private double matchThreshold=0.98;
+	private double matchThreshold=0.98,
+				divergenceThreshold=0.95;
 	private RuleMatcher matcher=null;
 	public MatchingRuleMiner(File f1, File f2, File fseed, double threshold, int startIteration) throws InterruptedException, ExecutionException {
 		// TODO Auto-generated constructor stub
@@ -93,7 +96,7 @@ public class MatchingRuleMiner {
 			}
 		}
 	}
-	private void MineIFPSs(double threshold) {
+	private void MineIFPSs() throws InterruptedException, ExecutionException {
 		//O(|seeds|*|triples|)
 		suite=null;
 		System.out.println("<MineIFPSs>Replacing objects...");
@@ -139,97 +142,73 @@ public class MatchingRuleMiner {
 		Set<PPair> pEquivalents=arm.MineAssociationRules();
 		System.out.println("<MineIFPSs>"+pEquivalents.size()+" pairs in total.");
 		System.out.println("<MineIFPSs>Mining suites...");
-		suite=MineSuites(pEquivalents,arm.getPlist(),trans);
-		System.out.println("<MineIFPSs>"+suite.size()+" suites were found.");
-		System.out.println("<MineIFPSs>Selecting ifps rules...");
-		trans=null;
-		arm=null;
-		pEquivalents=null;
-		ifpss=new IFPSSet();
-		
-		ExecutorService es=Executors.newFixedThreadPool(41);
-		for(PPairSet pset:suite) {
-			es.execute(new Runnable() {
-				@Override
-				public void run() {
-					// TODO Auto-generated method stub
-					if(pset.divergence()>threshold&&pset.bestInSubSet(suite)) {
-						ifpss.add(pset);
-					}
-				}
-			});
-		}
-		es.shutdown();
-		try {
-			while(!es.awaitTermination(5, TimeUnit.SECONDS)) {
-				System.out.print(ifpss.size()+"...");
-			}
-		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			System.exit(0);
-		}
-		suite=null;
-		System.out.println();
+		MineIFPSDirectly(pEquivalents,arm.getPlist(),trans);
 		System.out.println("<MineIFPSs> "+ifpss.size()+" rules were found.");
 	}
-	private Suite MineSuites(Set<PPair> pEquivalents,Map<Property,List<Integer>> plist,TransactionTable trans){
-		Suite suite=new Suite();
-		Map<Integer,Set<PPair>> equalpvs=new TreeMap<Integer,Set<PPair>>();
+	private List<Integer> ComputeDivergence(PPairSet pps,List<Integer> lm,TransactionTable trans){
+		List<Integer> newlm=new LinkedList<Integer>();
+		for(Integer index:lm) {
+			Match m=trans.getMatch(index);
+			TripleSet e1triples=triples1.get(m.getE(0));
+			TripleSet e2triples=triples2.get(m.getE(1));
+			if(e1triples==null||e2triples==null) continue;
+			Map<Property,Set<Instance>> ep1=getPVMap(e1triples),ep2=getPVMap(e2triples);
+			PVSetProcessor pvp=new PVSetProcessor(ep1,ep2,pps);
+			if(pvp.PVPairSetsIsEqual()) {
+				int hv=pvp.hashValue();
+				pps.addPairIntoGraph(hv);
+				newlm.add(index);
+			}
+		}
+		if(pps.divergence()>divergenceThreshold&&pps.bestInSubSet(ifpss)) {
+			ifpss.add(pps);
+		}
+		return newlm;
+	}
+	private void MineIFPSDirectly(Set<PPair> pEquivalents,Map<Property,List<Integer>> plist,TransactionTable trans) throws InterruptedException, ExecutionException {
+		ifpss=new IFPSSet();
+		Map<PPair,List<Integer>> pplist=new TreeMap<PPair,List<Integer>>();
+		Map<PPairSet,List<Integer>> scur=new TreeMap<PPairSet,List<Integer>>();
 		ExecutorService es=Executors.newFixedThreadPool(41);
 		for(PPair pp:pEquivalents) {
-			es.execute(new Runnable() {
-				private PPair rpp=pp;
-				private List<Integer> l=new LinkedList<Integer>();
-				@Override
-				public void run() {
-					// TODO Auto-generated method stub
-					List<Integer> lm=Operator.biAnd(plist.get(rpp.getP1()), plist.get(rpp.getP2()));
-					for(Integer index:lm) {
-						Match m=trans.getMatch(index);
-						TripleSet e1triples=triples1.get(m.getE(0));
-						TripleSet e2triples=triples2.get(m.getE(1));
-						Set<Instance> v1=e1triples.valuesOf(rpp.getP1());
-						Set<Instance> v2=e2triples.valuesOf(rpp.getP2());
-						if(existEqualObject(v1,v2)) {
-							l.add(index);
+			List<Integer> lm=Operator.biAnd(plist.get(pp.getP1()), plist.get(pp.getP2()));
+			if(lm.size()==0) continue;
+			PPairSet pps=new PPairSet(pp);
+			List<Integer> newlm=ComputeDivergence(pps,lm,trans);
+			pplist.put(pp, newlm);
+			scur.put(pps, newlm);
+		}
+		while(scur.size()>0) {
+			List<Future<Pair<PPairSet,List<Integer>>>> fut=new LinkedList<Future<Pair<PPairSet,List<Integer>>>>();
+			for(PPairSet outpps:scur.keySet()) {
+				for(PPair outpp:pEquivalents) {
+					if(outpp.compareTo(outpps.SmalleastPPair())>=0) break;
+					List<Integer> outlm=Operator.biAnd(pplist.get(outpp), scur.get(outpps));
+					if(outlm.size()==0) continue;
+					fut.add(es.submit(new Callable<Pair<PPairSet,List<Integer>>>() {
+						List<Integer> lm=outlm;
+						PPairSet pps=outpps;
+						PPair pp=outpp;
+						@Override
+						public Pair<PPairSet,List<Integer>> call() {
+							// TODO Auto-generated method stub
+							PPairSet newpps=new PPairSet(pps);
+							newpps.addPPair(pp);
+							List<Integer> newlm=ComputeDivergence(newpps,lm,trans);
+							return new Pair<PPairSet,List<Integer>>(newpps, newlm);
 						}
-					}
-					synchronized(equalpvs) {
-						for(Integer i:l) {
-							if(!equalpvs.containsKey(i)) equalpvs.put(i, new TreeSet<PPair>());
-							Set<PPair> pps=equalpvs.get(i);
-							pps.add(rpp);
-						}
-					}
+					}));
 				}
-			});
-		}
-		es.shutdown();
-		try {
-			while(!es.awaitTermination(5, TimeUnit.SECONDS)) {
-				System.out.print(".");
 			}
-		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			System.exit(0);
+			es.shutdown();
+			scur=new TreeMap<PPairSet,List<Integer>>();
+			for(Future<Pair<PPairSet,List<Integer>>> fut_res:fut) {
+				Pair<PPairSet,List<Integer>> res=fut_res.get();
+				if(res.second.size()==0) continue;
+				scur.put(res.first, res.second);
+			}
+			System.out.println("<MineIFPSDirectly>"+ifpss.size());
 		}
-		System.out.println();
-		es=Executors.newFixedThreadPool(41);
-		for(Integer i:equalpvs.keySet()) {
-			es.execute(new SuitesMiner(trans.getMatch(i),suite,equalpvs.get(i)));
-		}
-		es.shutdown();
-		try {
-			while(!es.awaitTermination(5, TimeUnit.SECONDS));
-		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			System.exit(0);
-		}
-		System.out.println();
-		return suite;
 	}
 	private void GetCorrespondences() {
 		candidates=new CorrespondenceSet();
@@ -294,16 +273,6 @@ public class MatchingRuleMiner {
 		}
 		return true;
 	}
-	private boolean existEqualObject(Set<Instance> e1vset, Set<Instance> e2vset) {
-		// TODO Auto-generated method stub
-		for(Instance e1:e1vset) {
-			for(Instance e2:e2vset) {
-				if(e1.approxEqual(e2))
-					return true;
-			}
-		}
-		return false;
-	}
 	private Map<Property,Set<Instance>> getPVMap(TripleSet triples){
 		Map<Property,Set<Instance>> ep=new TreeMap<Property,Set<Instance>>();
 		for(Triple t:triples) {
@@ -313,41 +282,14 @@ public class MatchingRuleMiner {
 		}
 		return ep;
 	}
-	private class SuitesMiner implements Runnable{
-		private Match m;
-		private Suite suite;
-		private Set<PPair> pps;
-		SuitesMiner(Match mp,Suite s,Set<PPair> ppsp){
-			m=mp;
-			suite=s;
-			pps=ppsp;
-		}
-		@Override
-		public void run() {
-			// TODO Auto-generated method stub
-			SubSetGenerator<PPair> g=new SubSetGenerator<PPair>(pps);
-			TripleSet e1triples=triples1.get(m.getE(0));
-			TripleSet e2triples=triples2.get(m.getE(1));
-			if(e1triples==null||e2triples==null) return;
-			Map<Property,Set<Instance>> ep1=getPVMap(e1triples),ep2=getPVMap(e2triples);
-			while(g.next()) {
-				PPairSet pset=new PPairSet(g.get());
-				PVSetProcessor pvp=new PVSetProcessor(ep1,ep2,pset);
-				if(pvp.PVPairSetsIsEqual()) {
-					int hv=pvp.hashValue();
-					suite.add(pset,hv);
-				}
-			}
-		}
-	}
-	public void mine(){
+	public void mine() throws InterruptedException, ExecutionException{
 		MatchSet newmatch=new MatchSet();
 		int msize=0;
 		do {
 			System.out.println("<MatchingRuleMiner>Iteration "+iteration);
 			System.out.println("<MatchingRuleMiner>Mining ifps rules...");
 //			Set<PPair> pEquivalents=MineIFPSs(seeds,candidates,0.95);
-			MineIFPSs(0.95);
+			MineIFPSs();
 			System.out.println("<MatchingRuleMiner>Mining correspondences...");
 			GetCorrespondences();
 //			candidates=GetCorrespondencesByEqualPPairs(pEquivalents);
