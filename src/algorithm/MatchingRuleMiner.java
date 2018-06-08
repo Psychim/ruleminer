@@ -160,16 +160,13 @@ public class MatchingRuleMiner {
 				newlm.add(index);
 			}
 		}
-		if(pps.divergence()>divergenceThreshold&&pps.bestInSubSet(ifpss)) {
-			ifpss.add(pps);
-		}
 		return newlm;
 	}
 	private void MineIFPSDirectly(Set<PPair> pEquivalents,Map<Property,List<Integer>> plist,TransactionTable trans) throws InterruptedException, ExecutionException {
 		ifpss=new IFPSSet();
 		Map<PPair,List<Integer>> pplist=new TreeMap<PPair,List<Integer>>();
 		Map<PPairSet,List<Integer>> scur=new TreeMap<PPairSet,List<Integer>>();
-		ExecutorService es=Executors.newFixedThreadPool(41);
+		
 		for(PPair pp:pEquivalents) {
 			List<Integer> lm=Operator.biAnd(plist.get(pp.getP1()), plist.get(pp.getP2()));
 			if(lm.size()==0) continue;
@@ -177,21 +174,27 @@ public class MatchingRuleMiner {
 			List<Integer> newlm=ComputeDivergence(pps,lm,trans);
 			pplist.put(pp, newlm);
 			scur.put(pps, newlm);
+			if(pps.divergence()>divergenceThreshold&&pps.bestInSubSet(ifpss)) {
+				ifpss.add(pps);
+			}
 		}
 		while(scur.size()>0) {
+			System.out.println("<MineIFPSDirectly> "+scur.size()+" candidates");
 			List<Future<Pair<PPairSet,List<Integer>>>> fut=new LinkedList<Future<Pair<PPairSet,List<Integer>>>>();
+			ExecutorService es=Executors.newFixedThreadPool(41);
 			for(PPairSet outpps:scur.keySet()) {
 				for(PPair outpp:pEquivalents) {
 					if(outpp.compareTo(outpps.SmalleastPPair())>=0) break;
-					List<Integer> outlm=Operator.biAnd(pplist.get(outpp), scur.get(outpps));
-					if(outlm.size()==0) continue;
+					List<Integer> outl1=pplist.get(outpp),outl2=scur.get(outpps);
 					fut.add(es.submit(new Callable<Pair<PPairSet,List<Integer>>>() {
-						List<Integer> lm=outlm;
+						List<Integer> l1=outl1,l2=outl2;
 						PPairSet pps=outpps;
 						PPair pp=outpp;
 						@Override
 						public Pair<PPairSet,List<Integer>> call() {
 							// TODO Auto-generated method stub
+							List<Integer> lm=Operator.biAnd(l1, l2);
+							if(lm.size()==0) return null;
 							PPairSet newpps=new PPairSet(pps);
 							newpps.addPPair(pp);
 							List<Integer> newlm=ComputeDivergence(newpps,lm,trans);
@@ -204,8 +207,13 @@ public class MatchingRuleMiner {
 			scur=new TreeMap<PPairSet,List<Integer>>();
 			for(Future<Pair<PPairSet,List<Integer>>> fut_res:fut) {
 				Pair<PPairSet,List<Integer>> res=fut_res.get();
+				if(res==null) continue;
 				if(res.second.size()==0) continue;
 				scur.put(res.first, res.second);
+				PPairSet pps=res.first;
+				if(pps.divergence()>divergenceThreshold&&pps.bestInSubSet(ifpss)) {
+					ifpss.add(pps);
+				}
 			}
 			System.out.println("<MineIFPSDirectly>"+ifpss.size());
 		}
@@ -339,7 +347,7 @@ public class MatchingRuleMiner {
 		try {
 			bw=new BufferedWriter(new FileWriter(f));
 			for(Match m:seeds) {
-				bw.write(m.getE(0)+" "+m.getE(1)+"\n");
+				bw.write(m.getE(0).getValue()+" "+m.getE(1).getValue()+"\n");
 			}
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
@@ -361,7 +369,7 @@ public class MatchingRuleMiner {
 		try {
 			bw=new BufferedWriter(new FileWriter(f));
 			for(Match m:matches) {
-				bw.write(m.getE(0)+" "+m.getE(1)+"\n");
+				bw.write(m.getE(0).getValue()+" "+m.getE(1).getValue()+"\n");
 			}
 		} catch (IOException e) {
 			// TODO Auto-generated catch block

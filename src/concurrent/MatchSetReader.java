@@ -30,6 +30,7 @@ public class MatchSetReader implements Callable<MatchSet> {
 				if(s==null) break;
 				String[] e=s.split(" ");
 				Instance e1=new Instance(e[1].substring(7,e[1].length()-1),0),e2=new Instance(e[3].substring(7,e[3].length()-1),1);
+//				Instance e1=new Instance(e[0],0),e2=new Instance(e[1],1);
 				matches.add(new Match(e1,e2));
 			}
 		} catch (FileNotFoundException e3) {

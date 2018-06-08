@@ -93,7 +93,9 @@ public class PPairSet implements Iterable<PPair>, Comparable<PPairSet>{
 	}
 	public boolean bestInSubSet(IFPSSet ifpss) {
 		// TODO Auto-generated method stub
-		for(PPairSet pps:ifpss) {
+		Iterator<PPairSet> ite=ifpss.iterator();
+		while(ite.hasNext()){
+			PPairSet pps=ite.next();
 			if(this.hasSubSet(pps)&&this.divergence()<=pps.divergence()&&this.compareTo(pps)!=0)
 				return false;
 		}
