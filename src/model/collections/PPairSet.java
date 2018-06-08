@@ -101,4 +101,18 @@ public class PPairSet implements Iterable<PPair>, Comparable<PPairSet>{
 		}
 		return true;
 	}
+	public void printGraph() {
+		// TODO Auto-generated method stub
+		for(Integer k:m.keySet()) {
+			System.out.println(k+"\t"+m.get(k));
+		}
+	}
+	public boolean hasSurport(int i) {
+		// TODO Auto-generated method stub
+		int edges=0;
+		for(Integer k:m.keySet()) {
+			edges+=m.get(k)-1;
+		}
+		return edges>=i;
+	}
 }

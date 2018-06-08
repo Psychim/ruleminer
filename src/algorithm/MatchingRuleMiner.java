@@ -173,10 +173,11 @@ public class MatchingRuleMiner {
 			PPairSet pps=new PPairSet(pp);
 			List<Integer> newlm=ComputeDivergence(pps,lm,trans);
 			pplist.put(pp, newlm);
-			scur.put(pps, newlm);
-			if(pps.divergence()>divergenceThreshold&&pps.bestInSubSet(ifpss)) {
+			if(pps.divergence()>divergenceThreshold&&pps.hasSurport(10)&&pps.bestInSubSet(ifpss)) {
 				ifpss.add(pps);
 			}
+			if(pps.divergence()<matchThreshold&&pps.hasSurport(10))
+				scur.put(pps, newlm);
 		}
 		while(scur.size()>0) {
 			System.out.println("<MineIFPSDirectly> "+scur.size()+" candidates");
@@ -209,11 +210,13 @@ public class MatchingRuleMiner {
 				Pair<PPairSet,List<Integer>> res=fut_res.get();
 				if(res==null) continue;
 				if(res.second.size()==0) continue;
-				scur.put(res.first, res.second);
+				
 				PPairSet pps=res.first;
-				if(pps.divergence()>divergenceThreshold&&pps.bestInSubSet(ifpss)) {
+				if(pps.divergence()>divergenceThreshold&&pps.hasSurport(10)&&pps.bestInSubSet(ifpss)) {
 					ifpss.add(pps);
 				}
+				if(pps.divergence()<matchThreshold&&pps.hasSurport(10))
+					scur.put(pps, res.second);
 			}
 			System.out.println("<MineIFPSDirectly>"+ifpss.size());
 		}
@@ -302,12 +305,10 @@ public class MatchingRuleMiner {
 			GetCorrespondences();
 //			candidates=GetCorrespondencesByEqualPPairs(pEquivalents);
 			msize=matches.size();
-			if(iteration>1){
-				newmatch=candidates.select(matchThreshold);
-				seeds.append(newmatch);			//unnecessary
-				matches.append(newmatch);
-				System.out.println("<MatchingRuleMiner> "+(matches.size()-msize)+" new matches found in iteration " +iteration);
-			}
+			newmatch=candidates.select(matchThreshold);
+			seeds.append(newmatch);			//unnecessary
+			matches.append(newmatch);
+			System.out.println("<MatchingRuleMiner> "+(matches.size()-msize)+" new matches found in iteration " +iteration);
 			iteration++;
 			System.out.println("<MatchingRuleMiner> save candidates before iteration "+iteration);
 			saveCandidates();
